@@ -13,6 +13,9 @@ dist/
 # Coverage
 coverage/
 
+# Root MD docs (contain sensitive URLs)
+/*.md
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -28,3 +31,6 @@ npm-debug.log*
 # Debug files
 debug-*.js
 temp-*.js
+
+# Spotify Player build output
+/SpotifyPlayerSpotifyPlayer/
