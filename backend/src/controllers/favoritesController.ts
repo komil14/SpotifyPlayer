@@ -5,7 +5,6 @@ import Favorite from "../models/Favorite";
 // @route   POST /api/favorites
 export const addFavorite = async (req: Request, res: Response) => {
   const {
-    userId,
     spotifyTrackId,
     trackName,
     artistName,
@@ -14,10 +13,16 @@ export const addFavorite = async (req: Request, res: Response) => {
     trackUri,
     durationMs,
   } = req.body;
+  const userId = req.user?.id;
 
-  if (!userId || !spotifyTrackId || !trackName || !artistName) {
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
+
+  if (!spotifyTrackId || !trackName || !artistName) {
     res.status(400).json({
-      message: "userId, spotifyTrackId, trackName, and artistName are required",
+      message: "spotifyTrackId, trackName, and artistName are required",
     });
     return;
   }
@@ -50,10 +55,10 @@ export const addFavorite = async (req: Request, res: Response) => {
 // @route   DELETE /api/favorites/:trackId
 export const removeFavorite = async (req: Request, res: Response) => {
   const { trackId } = req.params;
-  const { userId } = req.query;
+  const userId = req.user?.id;
 
   if (!userId) {
-    res.status(400).json({ message: "userId is required" });
+    res.status(401).json({ message: "Not authorized" });
     return;
   }
 
@@ -78,10 +83,10 @@ export const removeFavorite = async (req: Request, res: Response) => {
 // @desc    Get all favorites for a user
 // @route   GET /api/favorites
 export const getFavorites = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = req.user?.id;
 
   if (!userId) {
-    res.status(400).json({ message: "userId is required" });
+    res.status(401).json({ message: "Not authorized" });
     return;
   }
 
@@ -98,10 +103,10 @@ export const getFavorites = async (req: Request, res: Response) => {
 // @route   GET /api/favorites/check/:trackId
 export const checkFavorite = async (req: Request, res: Response) => {
   const { trackId } = req.params;
-  const { userId } = req.query;
+  const userId = req.user?.id;
 
   if (!userId) {
-    res.status(400).json({ message: "userId is required" });
+    res.status(401).json({ message: "Not authorized" });
     return;
   }
 

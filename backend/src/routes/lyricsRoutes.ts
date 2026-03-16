@@ -1,4 +1,5 @@
 import express from "express";
+import { protect } from "../middleware/authMiddleware";
 import {
   getTrackLyrics,
   getLyricById,
@@ -7,6 +8,8 @@ import {
 } from "../controllers/lyricsController";
 
 const router = express.Router();
+
+router.use(protect);
 
 // Get lyrics for a specific track (by query params)
 router.get("/", getTrackLyrics);

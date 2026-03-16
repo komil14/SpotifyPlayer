@@ -27,7 +27,11 @@ import {
   Album,
 } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
-import { getProfile, getStats } from "../services/spotifyService";
+import {
+  getProfile,
+  getStats,
+  getSpotifyLoginUrl,
+} from "../services/spotifyService";
 import { useNavigate } from "react-router-dom";
 import { keyframes } from "@emotion/react";
 
@@ -90,9 +94,12 @@ const ProfilePage: React.FC = () => {
     fetchProfile();
   }, [user]);
 
-  const handleConnect = () => {
-    if (user) {
-      window.location.href = `http://127.0.0.1:8888/api/spotify/login?userId=${user._id}`;
+  const handleConnect = async () => {
+    if (!user) return;
+    try {
+      window.location.href = await getSpotifyLoginUrl();
+    } catch (error) {
+      console.error("Failed to start Spotify login", error);
     }
   };
 

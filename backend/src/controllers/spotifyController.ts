@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import axios from "axios";
+import jwt from "jsonwebtoken";
 import querystring from "querystring";
 import User from "../models/User";
 import {
@@ -21,6 +22,36 @@ const SCOPES = [
   "playlist-read-private",
   "playlist-read-collaborative",
 ].join(" ");
+
+const getAuthenticatedUserId = (req: Request): string | null =>
+  req.user?.id || null;
+
+const createSpotifyState = (userId: string): string =>
+  jwt.sign(
+    {
+      id: userId,
+      type: "spotify_oauth",
+    },
+    process.env.JWT_SECRET || "defaultsecret",
+    { expiresIn: "10m" },
+  );
+
+const verifySpotifyState = (state: string): string | null => {
+  try {
+    const decoded = jwt.verify(
+      state,
+      process.env.JWT_SECRET || "defaultsecret",
+    ) as { id?: string; type?: string };
+
+    if (decoded.type !== "spotify_oauth" || !decoded.id) {
+      return null;
+    }
+
+    return decoded.id;
+  } catch (_error) {
+    return null;
+  }
+};
 
 // ─── Helper: Spotify API call with automatic token refresh + 429 retry ──
 const spotifyApiCall = async (
@@ -78,42 +109,59 @@ const spotifyApiCall = async (
   throw lastError;
 };
 
-// @desc    Redirect user to Spotify Auth Page
-// @route   GET /api/spotify/login
+// @desc    Create Spotify Auth URL for the authenticated user
+// @route   GET /api/spotify/login-url
 export const loginSpotify = (req: Request, res: Response) => {
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
+
   const params = querystring.stringify({
     response_type: "code",
     client_id: process.env.SPOTIFY_CLIENT_ID,
     scope: SCOPES,
     redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
-    // We pass the local user ID in 'state' so we know who to link this Spotify account to
-    state: req.query.userId as string,
+    state: createSpotifyState(userId),
   });
 
-  res.redirect(`https://accounts.spotify.com/authorize?${params}`);
+  res.json({
+    authUrl: `https://accounts.spotify.com/authorize?${params}`,
+  });
 };
 
 // @desc    Seek to position
 // @route   PUT /api/spotify/seek
 export const seekTrack = async (req: Request, res: Response) => {
-  const { positionMs, userId } = req.query;
+  const { positionMs } = req.query;
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   // Spotify API expects 'position_ms' in query params
   // URL: https://api.spotify.com/v1/me/player/seek?position_ms=25000
   const endpoint = `seek?position_ms=${positionMs}`;
 
-  const success = await sendCommand(endpoint, userId as string, "put");
+  const success = await sendCommand(endpoint, userId, "put");
   res.status(success ? 204 : 500).send();
 };
 
 // @desc    Handle Spotify Callback & Exchange Code for Token
 // @route   GET /api/spotify/callback
 export const spotifyCallback = async (req: Request, res: Response) => {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
   const code = (req.query.code as string) || null;
-  const userId = (req.query.state as string) || null; // This is the user ID we sent earlier
+  const userId = req.query.state
+    ? verifySpotifyState(req.query.state as string)
+    : null;
 
   if (!code || !userId) {
-    res.redirect(`${process.env.FRONTEND_URL}/home?error=missing_data`);
+    res.redirect(`${frontendUrl}/dashboard?error=missing_data`);
     return;
   }
 
@@ -149,10 +197,10 @@ export const spotifyCallback = async (req: Request, res: Response) => {
     });
 
     // 3. Redirect back to Frontend
-    res.redirect(`${process.env.FRONTEND_URL}/home?spotify_connected=true`);
+    res.redirect(`${frontendUrl}/dashboard?spotify_connected=true`);
   } catch (error) {
     console.error("Spotify Auth Error:", error);
-    res.redirect(`${process.env.FRONTEND_URL}/home?error=auth_failed`);
+    res.redirect(`${frontendUrl}/dashboard?error=auth_failed`);
   }
 };
 
@@ -180,15 +228,20 @@ const sendCommand = async (
 // @desc    Play/Resume with Auto-Device Detection
 // @route   POST /api/spotify/play
 export const playTrack = async (req: Request, res: Response) => {
-  const { userId } = req.query;
   const { uris } = req.body;
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   try {
     const body = uris ? { uris } : undefined;
 
     // Attempt 1: Just Play (Works if device is active)
     try {
-      await spotifyApiCall(userId as string, {
+      await spotifyApiCall(userId, {
         method: "put",
         url: "https://api.spotify.com/v1/me/player/play",
         data: body,
@@ -199,7 +252,7 @@ export const playTrack = async (req: Request, res: Response) => {
       if (err.response?.status === 404) {
         console.log("No active device. Searching for available devices...");
 
-        const deviceRes = await spotifyApiCall(userId as string, {
+        const deviceRes = await spotifyApiCall(userId, {
           method: "get",
           url: "https://api.spotify.com/v1/me/player/devices",
         });
@@ -209,7 +262,7 @@ export const playTrack = async (req: Request, res: Response) => {
           const firstDeviceId = devices[0].id;
           console.log(`Activating device: ${devices[0].name}`);
 
-          await spotifyApiCall(userId as string, {
+          await spotifyApiCall(userId, {
             method: "put",
             url: `https://api.spotify.com/v1/me/player/play?device_id=${firstDeviceId}`,
             data: body,
@@ -236,37 +289,55 @@ export const playTrack = async (req: Request, res: Response) => {
 // @desc    Pause
 // @route   POST /api/spotify/pause
 export const pauseTrack = async (req: Request, res: Response) => {
-  const success = await sendCommand("pause", req.query.userId as string, "put");
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
+
+  const success = await sendCommand("pause", userId, "put");
   res.status(success ? 204 : 500).send();
 };
 
 // @desc    Next Track
 // @route   POST /api/spotify/next
 export const nextTrack = async (req: Request, res: Response) => {
-  const success = await sendCommand("next", req.query.userId as string, "post");
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
+
+  const success = await sendCommand("next", userId, "post");
   res.status(success ? 204 : 500).send();
 };
 
 // @desc    Previous Track
 // @route   POST /api/spotify/previous
 export const previousTrack = async (req: Request, res: Response) => {
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
+
   const success = await sendCommand(
     "previous",
-    req.query.userId as string,
+    userId,
     "post",
   );
   res.status(success ? 204 : 500).send();
 };
 
 export const getCurrentTrack = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
   if (!userId) {
-    res.status(400).json({ message: "User ID required" });
+    res.status(401).json({ message: "Not authorized" });
     return;
   }
 
   try {
-    const trackData = await getCurrentlyPlaying(userId as string);
+    const trackData = await getCurrentlyPlaying(userId);
 
     // 1. Handle Empty/Ad
     if (
@@ -321,9 +392,13 @@ export const getCurrentTrack = async (req: Request, res: Response) => {
 // @desc    Get User Profile
 // @route   GET /api/spotify/profile
 export const getUserProfile = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: "https://api.spotify.com/v1/me",
     });
@@ -337,9 +412,13 @@ export const getUserProfile = async (req: Request, res: Response) => {
 // @desc    Get Top Tracks
 // @route   GET /api/spotify/top-tracks
 export const getTopTracks = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: "https://api.spotify.com/v1/me/top/tracks?limit=10&time_range=short_term",
     });
@@ -353,9 +432,13 @@ export const getTopTracks = async (req: Request, res: Response) => {
 // @desc    Get Recently Played
 // @route   GET /api/spotify/recently-played
 export const getRecentlyPlayed = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: "https://api.spotify.com/v1/me/player/recently-played?limit=10",
     });
@@ -369,9 +452,13 @@ export const getRecentlyPlayed = async (req: Request, res: Response) => {
 // @desc    Get User Playlists
 // @route   GET /api/spotify/playlists
 export const getUserPlaylists = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: "https://api.spotify.com/v1/me/playlists",
     });
@@ -384,9 +471,14 @@ export const getUserPlaylists = async (req: Request, res: Response) => {
 // @desc    Search Spotify
 // @route   GET /api/spotify/search
 export const searchSpotify = async (req: Request, res: Response) => {
-  const { userId, q } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  const { q } = req.query;
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: `https://api.spotify.com/v1/search?q=${encodeURIComponent(q as string)}&type=track,artist,album&limit=10`,
     });
@@ -399,8 +491,13 @@ export const searchSpotify = async (req: Request, res: Response) => {
 // @desc    Get Tracks of a specific Playlist
 // @route   GET /api/spotify/playlists/:id
 export const getPlaylistTracks = async (req: Request, res: Response) => {
-  const { userId } = req.query;
   const { id } = req.params;
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   if (!id || id === "undefined") {
     res.status(400).json([]);
@@ -408,7 +505,7 @@ export const getPlaylistTracks = async (req: Request, res: Response) => {
   }
 
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: `https://api.spotify.com/v1/playlists/${id}/tracks`,
     });
@@ -425,9 +522,13 @@ export const getPlaylistTracks = async (req: Request, res: Response) => {
 // @desc    Get available Spotify devices
 // @route   GET /api/spotify/devices
 export const getDevices = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: "https://api.spotify.com/v1/me/player/devices",
     });
@@ -441,9 +542,13 @@ export const getDevices = async (req: Request, res: Response) => {
 // @desc    Get the user's playback queue
 // @route   GET /api/spotify/queue
 export const getQueue = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
   try {
-    const response = await spotifyApiCall(userId as string, {
+    const response = await spotifyApiCall(userId, {
       method: "get",
       url: "https://api.spotify.com/v1/me/player/queue",
     });
@@ -457,7 +562,13 @@ export const getQueue = async (req: Request, res: Response) => {
 // @desc    Add a track to the playback queue
 // @route   POST /api/spotify/queue
 export const addToQueue = async (req: Request, res: Response) => {
-  const { userId, uri } = req.query;
+  const { uri } = req.query;
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   if (!uri) {
     res.status(400).json({ message: "uri query param is required" });
@@ -465,7 +576,7 @@ export const addToQueue = async (req: Request, res: Response) => {
   }
 
   try {
-    await spotifyApiCall(userId as string, {
+    await spotifyApiCall(userId, {
       method: "post",
       url: `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri as string)}`,
     });
@@ -481,7 +592,13 @@ export const addToQueue = async (req: Request, res: Response) => {
 // @desc    Set playback volume
 // @route   PUT /api/spotify/volume
 export const setVolume = async (req: Request, res: Response) => {
-  const { userId, volume_percent } = req.query;
+  const { volume_percent } = req.query;
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   if (volume_percent === undefined) {
     res
@@ -491,7 +608,7 @@ export const setVolume = async (req: Request, res: Response) => {
   }
 
   try {
-    await spotifyApiCall(userId as string, {
+    await spotifyApiCall(userId, {
       method: "put",
       url: `https://api.spotify.com/v1/me/player/volume?volume_percent=${volume_percent}`,
     });
@@ -507,7 +624,13 @@ export const setVolume = async (req: Request, res: Response) => {
 // @desc    Toggle shuffle mode
 // @route   PUT /api/spotify/shuffle
 export const setShuffle = async (req: Request, res: Response) => {
-  const { userId, state } = req.query; // state = true or false
+  const { state } = req.query; // state = true or false
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   if (state === undefined) {
     res
@@ -517,7 +640,7 @@ export const setShuffle = async (req: Request, res: Response) => {
   }
 
   try {
-    await spotifyApiCall(userId as string, {
+    await spotifyApiCall(userId, {
       method: "put",
       url: `https://api.spotify.com/v1/me/player/shuffle?state=${state}`,
     });
@@ -533,7 +656,13 @@ export const setShuffle = async (req: Request, res: Response) => {
 // @desc    Set repeat mode
 // @route   PUT /api/spotify/repeat
 export const setRepeat = async (req: Request, res: Response) => {
-  const { userId, state } = req.query; // state = off, context, or track
+  const { state } = req.query; // state = off, context, or track
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   if (!state) {
     res
@@ -551,7 +680,7 @@ export const setRepeat = async (req: Request, res: Response) => {
   }
 
   try {
-    await spotifyApiCall(userId as string, {
+    await spotifyApiCall(userId, {
       method: "put",
       url: `https://api.spotify.com/v1/me/player/repeat?state=${state}`,
     });
@@ -567,8 +696,13 @@ export const setRepeat = async (req: Request, res: Response) => {
 // @desc    Transfer playback to a different device
 // @route   PUT /api/spotify/transfer
 export const transferPlayback = async (req: Request, res: Response) => {
-  const { userId } = req.query;
   const { deviceId, play } = req.body;
+  const userId = getAuthenticatedUserId(req);
+
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
 
   if (!deviceId) {
     res.status(400).json({ message: "deviceId is required in body" });
@@ -576,7 +710,7 @@ export const transferPlayback = async (req: Request, res: Response) => {
   }
 
   try {
-    await spotifyApiCall(userId as string, {
+    await spotifyApiCall(userId, {
       method: "put",
       url: "https://api.spotify.com/v1/me/player",
       data: {

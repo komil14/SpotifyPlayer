@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Typography, IconButton, LinearProgress, Paper, Avatar } from '@mui/material';
 import { PlayArrow, Pause, SkipNext } from '@mui/icons-material';
 import { getCurrentTrack, play, pause, next } from '../../services/spotifyService';
@@ -25,10 +25,10 @@ const MiniPlayer: React.FC<Props> = ({ userId }) => {
   const [track, setTrack] = useState<TrackData | null>(null);
   const [progress, setProgress] = useState(0);
 
-  const fetchTrack = async () => {
+  const fetchTrack = useCallback(async () => {
     try {
-        // FIX: Use 'as unknown as TrackData' to override the type mismatch error
-        const data = (await getCurrentTrack(userId)) as unknown as TrackData;
+        const response = await getCurrentTrack(userId);
+        const data = response.data as TrackData;
         
         if (data && data.item) {
             setTrack(data);
@@ -36,13 +36,13 @@ const MiniPlayer: React.FC<Props> = ({ userId }) => {
             setProgress(pct > 100 ? 100 : pct);
         }
     } catch (e) { console.error(e); }
-  };
+  }, [userId]);
 
   useEffect(() => {
     fetchTrack();
     const interval = setInterval(fetchTrack, 4000); 
     return () => clearInterval(interval);
-  }, [userId]);
+  }, [fetchTrack]);
 
   if (!track || !track.item) return null;
 

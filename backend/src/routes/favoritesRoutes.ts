@@ -1,4 +1,5 @@
 import express from "express";
+import { protect } from "../middleware/authMiddleware";
 import {
   addFavorite,
   removeFavorite,
@@ -7,6 +8,8 @@ import {
 } from "../controllers/favoritesController";
 
 const router = express.Router();
+
+router.use(protect);
 
 // GET  /api/favorites          — Get all favorites for user
 router.get("/", getFavorites);

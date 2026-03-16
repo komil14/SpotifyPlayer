@@ -6,20 +6,25 @@ import mongoose from "mongoose";
 // @route   POST /api/analytics/log
 export const logPlay = async (req: Request, res: Response) => {
   const {
-    userId,
     spotifyTrackId,
     trackName,
     artistName,
     albumArt,
     durationMs,
   } = req.body;
+  const userId = req.user?.id;
 
-  if (!userId || !spotifyTrackId || !trackName || !artistName) {
+  if (!userId) {
+    res.status(401).json({ message: "Not authorized" });
+    return;
+  }
+
+  if (!spotifyTrackId || !trackName || !artistName) {
     res
       .status(400)
       .json({
         message:
-          "userId, spotifyTrackId, trackName, and artistName are required",
+          "spotifyTrackId, trackName, and artistName are required",
       });
     return;
   }
@@ -44,10 +49,10 @@ export const logPlay = async (req: Request, res: Response) => {
 // @desc    Get listening statistics for a user
 // @route   GET /api/analytics/stats
 export const getStats = async (req: Request, res: Response) => {
-  const { userId } = req.query;
+  const userId = req.user?.id;
 
   if (!userId) {
-    res.status(400).json({ message: "userId is required" });
+    res.status(401).json({ message: "Not authorized" });
     return;
   }
 
@@ -170,10 +175,11 @@ export const getStats = async (req: Request, res: Response) => {
 // @desc    Get listening history for a user (paginated)
 // @route   GET /api/analytics/history
 export const getHistory = async (req: Request, res: Response) => {
-  const { userId, page = "1", limit = "20" } = req.query;
+  const userId = req.user?.id;
+  const { page = "1", limit = "20" } = req.query;
 
   if (!userId) {
-    res.status(400).json({ message: "userId is required" });
+    res.status(401).json({ message: "Not authorized" });
     return;
   }
 

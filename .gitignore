@@ -33,4 +33,4 @@ debug-*.js
 temp-*.js
 
 # Spotify Player build output
-/SpotifyPlayerSpotifyPlayer/
+/SpotifyPlayer

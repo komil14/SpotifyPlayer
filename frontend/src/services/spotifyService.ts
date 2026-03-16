@@ -1,13 +1,36 @@
 import axios from "axios";
+import authService from "./authService";
 
-// Ensure this matches your Backend Port (8888)
-const API_URL = "http://127.0.0.1:8888/api/spotify";
-const FAVORITES_URL = "http://127.0.0.1:8888/api/favorites";
-const ANALYTICS_URL = "http://127.0.0.1:8888/api/analytics";
+const API_BASE_URL =
+  process.env.REACT_APP_API_BASE_URL ||
+  (window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8888/api"
+    : "/api");
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+});
+
+api.interceptors.request.use((config) => {
+  const token = authService.getToken();
+  if (token) {
+    config.headers = {
+      ...config.headers,
+      Authorization: `Bearer ${token}`,
+    };
+  }
+  return config;
+});
+
+export const getSpotifyLoginUrl = async (): Promise<string> => {
+  const response = await api.get<{ authUrl: string }>("/spotify/login-url");
+  return response.data.authUrl;
+};
 
 // --- CORE PLAYER FUNCTIONS ---
-export const getCurrentTrack = (userId: string) =>
-  axios.get(`${API_URL}/current-track`, { params: { userId } });
+export const getCurrentTrack = (_userId?: string) =>
+  api.get("/spotify/current-track");
 
 export const getLyrics = (
   trackName: string,
@@ -15,89 +38,89 @@ export const getLyrics = (
   spotifyTrackId: string,
   durationMs: number,
 ) =>
-  axios.get("http://127.0.0.1:8888/api/lyrics", {
+  api.get("/lyrics", {
     params: { trackName, artistName, spotifyTrackId, durationMs },
   });
 
-export const play = (userId: string, uris?: string[]) =>
-  axios.post(`${API_URL}/play`, { uris }, { params: { userId } });
+export const play = (_userId?: string, uris?: string[]) =>
+  api.post("/spotify/play", { uris });
 
-export const pause = (userId: string) =>
-  axios.post(`${API_URL}/pause`, {}, { params: { userId } });
+export const pause = (_userId?: string) =>
+  api.post("/spotify/pause");
 
-export const next = (userId: string) =>
-  axios.post(`${API_URL}/next`, {}, { params: { userId } });
+export const next = (_userId?: string) =>
+  api.post("/spotify/next");
 
-export const previous = (userId: string) =>
-  axios.post(`${API_URL}/previous`, {}, { params: { userId } });
+export const previous = (_userId?: string) =>
+  api.post("/spotify/previous");
 
-export const seek = (userId: string, positionMs: number) =>
-  axios.put(`${API_URL}/seek`, {}, { params: { userId, positionMs } });
+export const seek = (_userId: string, positionMs: number) =>
+  api.put("/spotify/seek", {}, { params: { positionMs } });
 
 // --- DATA FUNCTIONS ---
 
-export const getProfile = (userId: string) =>
-  axios.get(`${API_URL}/profile`, { params: { userId } });
+export const getProfile = (_userId?: string) =>
+  api.get("/spotify/profile");
 
-export const getTopTracks = (userId: string) =>
-  axios.get(`${API_URL}/top-tracks`, { params: { userId } });
+export const getTopTracks = (_userId?: string) =>
+  api.get("/spotify/top-tracks");
 
-export const getRecentlyPlayed = (userId: string) =>
-  axios.get(`${API_URL}/recently-played`, { params: { userId } });
+export const getRecentlyPlayed = (_userId?: string) =>
+  api.get("/spotify/recently-played");
 
-export const getPlaylists = (userId: string) =>
-  axios.get(`${API_URL}/playlists`, { params: { userId } });
+export const getPlaylists = (_userId?: string) =>
+  api.get("/spotify/playlists");
 
-// This is the one that was missing/causing the error:
-export const getPlaylistTracks = (userId: string, playlistId: string) =>
-  axios.get(`${API_URL}/playlists/${playlistId}`, { params: { userId } });
+export const getPlaylistTracks = (_userId: string, playlistId: string) =>
+  api.get(`/spotify/playlists/${playlistId}`);
 
-export const searchTracks = (userId: string, query: string) =>
-  axios.get(`${API_URL}/search`, { params: { userId, q: query } });
+export const searchTracks = (_userId: string, query: string) =>
+  api.get("/spotify/search", { params: { q: query } });
 
 export const getAllCachedSongs = () =>
-  axios.get("http://127.0.0.1:8888/api/lyrics/all");
+  api.get("/lyrics/all");
 
 export const addManualSong = (trackName: string, artistName: string) =>
-  axios.post("http://127.0.0.1:8888/api/lyrics/manual", {
+  api.post("/lyrics/manual", {
     trackName,
     artistName,
   });
 
 // --- PLAYBACK CONTROLS ---
 
-export const getQueue = (userId: string) =>
-  axios.get(`${API_URL}/queue`, { params: { userId } });
+export const getQueue = (_userId?: string) =>
+  api.get("/spotify/queue");
 
-export const addToQueue = (userId: string, uri: string) =>
-  axios.post(`${API_URL}/queue`, {}, { params: { userId, uri } });
+export const addToQueue = (_userId: string, uri: string) =>
+  api.post("/spotify/queue", {}, { params: { uri } });
 
-export const setVolume = (userId: string, volumePercent: number) =>
-  axios.put(
-    `${API_URL}/volume`,
+export const setVolume = (_userId: string, volumePercent: number) =>
+  api.put(
+    "/spotify/volume",
     {},
-    { params: { userId, volume_percent: volumePercent } },
+    { params: { volume_percent: volumePercent } },
   );
 
-export const setShuffle = (userId: string, state: boolean) =>
-  axios.put(`${API_URL}/shuffle`, {}, { params: { userId, state } });
+export const setShuffle = (_userId: string, state: boolean) =>
+  api.put("/spotify/shuffle", {}, { params: { state } });
 
-export const setRepeat = (userId: string, state: "off" | "context" | "track") =>
-  axios.put(`${API_URL}/repeat`, {}, { params: { userId, state } });
+export const setRepeat = (
+  _userId: string,
+  state: "off" | "context" | "track",
+) => api.put("/spotify/repeat", {}, { params: { state } });
 
 export const transferPlayback = (
-  userId: string,
+  _userId: string,
   deviceId: string,
   autoPlay?: boolean,
 ) =>
-  axios.put(
-    `${API_URL}/transfer`,
+  api.put(
+    "/spotify/transfer",
     { deviceId, play: autoPlay ?? true },
-    { params: { userId } },
   );
 
-export const getDevices = (userId: string) =>
-  axios.get(`${API_URL}/devices`, { params: { userId } });
+export const getDevices = (_userId?: string) =>
+  api.get("/spotify/devices");
 
 // --- FAVORITES ---
 
@@ -110,16 +133,19 @@ export const addFavorite = (data: {
   albumArt?: string;
   trackUri?: string;
   durationMs?: number;
-}) => axios.post(FAVORITES_URL, data);
+}) => {
+  const { userId: _userId, ...payload } = data;
+  return api.post("/favorites", payload);
+};
 
-export const removeFavorite = (userId: string, trackId: string) =>
-  axios.delete(`${FAVORITES_URL}/${trackId}`, { params: { userId } });
+export const removeFavorite = (_userId: string, trackId: string) =>
+  api.delete(`/favorites/${trackId}`);
 
-export const getFavorites = (userId: string) =>
-  axios.get(FAVORITES_URL, { params: { userId } });
+export const getFavorites = (_userId?: string) =>
+  api.get("/favorites");
 
-export const checkFavorite = (userId: string, trackId: string) =>
-  axios.get(`${FAVORITES_URL}/check/${trackId}`, { params: { userId } });
+export const checkFavorite = (_userId: string, trackId: string) =>
+  api.get(`/favorites/check/${trackId}`);
 
 // --- ANALYTICS ---
 
@@ -130,10 +156,13 @@ export const logPlay = (data: {
   artistName: string;
   albumArt?: string;
   durationMs?: number;
-}) => axios.post(`${ANALYTICS_URL}/log`, data);
+}) => {
+  const { userId: _userId, ...payload } = data;
+  return api.post("/analytics/log", payload);
+};
 
-export const getStats = (userId: string) =>
-  axios.get(`${ANALYTICS_URL}/stats`, { params: { userId } });
+export const getStats = (_userId?: string) =>
+  api.get("/analytics/stats");
 
-export const getHistory = (userId: string, page?: number, limit?: number) =>
-  axios.get(`${ANALYTICS_URL}/history`, { params: { userId, page, limit } });
+export const getHistory = (_userId: string, page?: number, limit?: number) =>
+  api.get("/analytics/history", { params: { page, limit } });

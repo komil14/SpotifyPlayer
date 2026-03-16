@@ -1,4 +1,5 @@
 import express from "express";
+import { protect } from "../middleware/authMiddleware";
 import {
   loginSpotify,
   spotifyCallback,
@@ -25,9 +26,12 @@ import {
 
 const router = express.Router();
 
-// Auth & Core Player Routes
-router.get("/login", loginSpotify);
+router.get("/login-url", protect, loginSpotify);
 router.get("/callback", spotifyCallback);
+
+router.use(protect);
+
+// Auth & Core Player Routes
 router.get("/current-track", getCurrentTrack);
 router.post("/play", playTrack);
 router.post("/pause", pauseTrack);

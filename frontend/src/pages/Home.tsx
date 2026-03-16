@@ -34,6 +34,7 @@ import {
   addFavorite,
   removeFavorite,
   checkFavorite,
+  getSpotifyLoginUrl,
 } from "../services/spotifyService";
 import { useNavigate } from "react-router-dom";
 import MiniPlayer from "../components/Player/MiniPlayer";
@@ -129,9 +130,14 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleConnect = () => {
-    if (user)
-      window.location.href = `http://127.0.0.1:8888/api/spotify/login?userId=${user._id}`;
+  const handleConnect = async () => {
+    if (!user) return;
+    try {
+      window.location.href = await getSpotifyLoginUrl();
+    } catch (error) {
+      console.error("Failed to start Spotify login", error);
+      alert("Could not start Spotify connection. Please try again.");
+    }
   };
 
   const handleToggleFav = async (trackData: any, e: React.MouseEvent) => {

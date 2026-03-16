@@ -1,4 +1,5 @@
 import express from "express";
+import { protect } from "../middleware/authMiddleware";
 import {
   logPlay,
   getStats,
@@ -6,6 +7,8 @@ import {
 } from "../controllers/analyticsController";
 
 const router = express.Router();
+
+router.use(protect);
 
 // POST /api/analytics/log       — Log a play event
 router.post("/log", logPlay);

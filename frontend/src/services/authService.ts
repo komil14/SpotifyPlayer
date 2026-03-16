@@ -1,6 +1,13 @@
 import axios from 'axios';
 
-const API_URL = 'http://127.0.0.1:8888/api/auth';
+const API_BASE_URL =
+  process.env.REACT_APP_API_BASE_URL ||
+  (window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8888/api"
+    : "/api");
+
+const API_URL = `${API_BASE_URL}/auth`;
 
 // Define response type
 interface AuthResponse {
@@ -36,11 +43,17 @@ const getCurrentUser = () => {
   return null;
 };
 
+const getToken = () => {
+  const user = getCurrentUser();
+  return user?.token || null;
+};
+
 const authService = {
   register,
   login,
   logout,
   getCurrentUser,
+  getToken,
 };
 
 export default authService;
