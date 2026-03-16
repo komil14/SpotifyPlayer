@@ -4,7 +4,9 @@
 
 - A DigitalOcean Droplet with Docker Engine and the Docker Compose plugin installed
 - DNS `A` record for `spotify.komill.dev` pointing to the droplet
-- Ports `80`, `443`, and `22` open on the droplet firewall
+- A server-wide reverse proxy already running on the droplet
+  - Caddy or Nginx can be used
+- Port `22` open on the droplet firewall
 - Spotify dashboard redirect URI:
   - `https://spotify.komill.dev/api/spotify/callback`
 
@@ -13,8 +15,7 @@
 ### Root `.env.docker`
 
 ```env
-DOMAIN=spotify.komill.dev
-ACME_EMAIL=your-real-email@example.com
+WEB_PORT=8081
 ```
 
 ### Backend `backend/.env.production`
@@ -42,9 +43,25 @@ REACT_APP_API_BASE_URL=/api
 
 ```bash
 cd /path/to/Spotify
-docker compose build
+docker compose --env-file .env.docker build
 docker compose --env-file .env.docker up -d
 ```
+
+This stack will bind only to `127.0.0.1:8081` by default. It does not manage
+TLS or public ports directly.
+
+## Reverse proxy
+
+Add this to the existing server-wide Caddy:
+
+```caddy
+spotify.komill.dev {
+  encode gzip zstd
+  reverse_proxy 127.0.0.1:8081
+}
+```
+
+If you want a different private port, change `WEB_PORT` in `.env.docker`.
 
 ## Verify
 
@@ -52,21 +69,20 @@ docker compose --env-file .env.docker up -d
 docker compose ps
 docker compose logs --tail=100 backend
 docker compose logs --tail=100 web
-docker compose logs --tail=100 caddy
 ```
 
 Expected checks:
 
 - Backend logs show the production env file path
 - Backend logs show `MongoDB Connected: .../SpotifyPlayer`
-- `https://spotify.komill.dev` loads the frontend
-- `https://spotify.komill.dev/health` returns backend health through the proxy chain
+- `curl http://127.0.0.1:8081` returns the frontend HTML locally on the droplet
+- `https://spotify.komill.dev` loads the frontend through the shared reverse proxy
 
 ## Update after code changes
 
 ```bash
 git pull
-docker compose build
+docker compose --env-file .env.docker build
 docker compose --env-file .env.docker up -d
 ```
 
@@ -77,7 +93,6 @@ Restart one service:
 ```bash
 docker compose restart backend
 docker compose restart web
-docker compose restart caddy
 ```
 
 Stop the stack:
@@ -91,5 +106,4 @@ Follow live logs:
 ```bash
 docker compose logs -f backend
 docker compose logs -f web
-docker compose logs -f caddy
 ```
