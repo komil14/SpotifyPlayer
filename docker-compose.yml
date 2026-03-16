@@ -4,6 +4,14 @@ services:
       context: ./backend
     env_file:
       - ./backend/.env.production
+    expose:
+      - "8888"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8888/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   web:
@@ -12,13 +20,23 @@ services:
       args:
         REACT_APP_API_BASE_URL: /api
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   caddy:
     image: caddy:2-alpine
     depends_on:
-      - web
+      web:
+        condition: service_healthy
     environment:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
@@ -29,6 +47,12 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
 volumes:
