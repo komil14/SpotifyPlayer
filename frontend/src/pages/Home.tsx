@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Container,
   Typography,
@@ -24,9 +24,13 @@ import {
   AccountTree,
   Favorite,
   FavoriteBorder,
+  Link as LinkIcon,
+  LockOpen,
+  CheckCircle,
 } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
 import {
+  getProfile,
   getTopTracks,
   getRecentlyPlayed,
   play,
@@ -38,14 +42,6 @@ import {
 } from "../services/spotifyService";
 import { useNavigate } from "react-router-dom";
 import MiniPlayer from "../components/Player/MiniPlayer";
-import { keyframes } from "@emotion/react";
-
-const pulse = keyframes`
-  0% { box-shadow: 0 0 0 0 rgba(29, 185, 84, 0.4); }
-  70% { box-shadow: 0 0 0 12px rgba(29, 185, 84, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(29, 185, 84, 0); }
-`;
-
 const timeAgo = (dateStr: string): string => {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -65,15 +61,29 @@ const Dashboard: React.FC = () => {
   const [recent, setRecent] = useState<any[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [favMap, setFavMap] = useState<Record<string, boolean>>({});
+  const [spotifyConnected, setSpotifyConnected] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!user) return;
     setDataLoading(true);
     try {
+      const profileRes = await getProfile(user._id).catch(() => null);
+      const profileData = (profileRes as any)?.data;
+      const connected = Boolean(profileData?.display_name);
+      setSpotifyConnected(connected);
+
+      if (!connected) {
+        setTopTracks([]);
+        setRecent([]);
+        setFavMap({});
+        return;
+      }
+
       const [topRes, recentRes] = await Promise.all([
-        getTopTracks(user._id).catch((e) => ({ data: [] })),
-        getRecentlyPlayed(user._id).catch((e) => ({ data: [] })),
+        getTopTracks(user._id).catch(() => ({ data: [] })),
+        getRecentlyPlayed(user._id).catch(() => ({ data: [] })),
       ]);
+
       setTopTracks((topRes as any).data || []);
       setRecent((recentRes as any).data || []);
       // Check favorite status for all loaded tracks
@@ -98,14 +108,15 @@ const Dashboard: React.FC = () => {
       setFavMap(checks);
     } catch (error) {
       console.error("Dashboard load error", error);
+      setSpotifyConnected(false);
     } finally {
       setDataLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (user) loadData();
-  }, [user]);
+  }, [user, loadData]);
 
   const handlePlayTrack = async (uri: string, trackData?: any) => {
     if (!user) return;
@@ -189,14 +200,18 @@ const Dashboard: React.FC = () => {
     {
       icon: <Search sx={{ fontSize: 32 }} />,
       title: "Search Music",
-      desc: "Find synced lyrics for any song",
+      desc: spotifyConnected
+        ? "Find synced lyrics and play through Spotify"
+        : "Explore lyrics and discovery tools",
       route: "/search",
       gradient: "linear-gradient(135deg, #1DB954 0%, #1ed760 100%)",
     },
     {
       icon: <LibraryMusic sx={{ fontSize: 32 }} />,
       title: "Your Library",
-      desc: "Browse your personal playlists",
+      desc: spotifyConnected
+        ? "Browse your Spotify playlists"
+        : "Connect Spotify to unlock playlist import",
       route: "/playlists",
       gradient:
         "linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)",
@@ -204,7 +219,9 @@ const Dashboard: React.FC = () => {
     {
       icon: <Headphones sx={{ fontSize: 32 }} />,
       title: "Now Playing",
-      desc: "Full player with live lyrics",
+      desc: spotifyConnected
+        ? "Full player with live synced lyrics"
+        : "Connect Spotify for live playback sync",
       route: "/player",
       gradient:
         "linear-gradient(135deg, rgba(29,185,84,0.25) 0%, rgba(29,185,84,0.05) 100%)",
@@ -305,9 +322,94 @@ const Dashboard: React.FC = () => {
             </Tooltip>
           </Box>
           <Typography variant="body1" color="text.secondary">
-            Here's what's been playing lately.
+            {spotifyConnected
+              ? "Here’s what’s been playing lately."
+              : "Your account is ready. Explore the public lyrics tools now, or connect Spotify for live playback and imports."}
           </Typography>
         </Box>
+
+        {!spotifyConnected && (
+          <Box
+            sx={{
+              mb: 5,
+              p: 3,
+              borderRadius: 5,
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(29,185,84,0.08) 100%)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={3}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", md: "center" }}
+            >
+              <Box>
+                <Typography
+                  variant="h5"
+                  fontWeight={700}
+                  sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}
+                >
+                  <LinkIcon sx={{ color: "#1DB954" }} />
+                  Spotify Is Optional
+                </Typography>
+                <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
+                  The public dictionary and cached lyrics are available without
+                  Spotify. Connect your account only if you want playlists,
+                  profile import, playback control, and live synced lyrics.
+                </Typography>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={2}
+                  sx={{ mt: 2 }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <CheckCircle sx={{ color: "#1DB954", fontSize: 18 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      Public dictionary and lyrics explorer
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <LockOpen sx={{ color: "#1DB954", fontSize: 18 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      Spotify unlocks live player features
+                    </Typography>
+                  </Box>
+                </Stack>
+              </Box>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                <Button
+                  variant="outlined"
+                  onClick={() => navigate("/dictionary")}
+                  sx={{
+                    borderRadius: 50,
+                    borderColor: "rgba(255,255,255,0.18)",
+                    color: "white",
+                    fontWeight: 600,
+                    "&:hover": { borderColor: "#1DB954", color: "#1DB954" },
+                  }}
+                >
+                  Open Dictionary
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={handleConnect}
+                  sx={{
+                    borderRadius: 50,
+                    bgcolor: "#1DB954",
+                    color: "#000",
+                    fontWeight: 700,
+                    "&:hover": { bgcolor: "#1ed760" },
+                  }}
+                >
+                  Connect Spotify
+                </Button>
+              </Stack>
+            </Stack>
+          </Box>
+        )}
 
         {/* QUICK ACTIONS — 4 Cards */}
         <Stack
@@ -496,11 +598,17 @@ const Dashboard: React.FC = () => {
                 >
                   <Headphones sx={{ fontSize: 48, color: "#535353", mb: 2 }} />
                   <Typography color="text.secondary" gutterBottom>
-                    No listening history found.
+                    {spotifyConnected
+                      ? "No listening history found yet."
+                      : "Connect Spotify to import your top tracks and start live playback."}
                   </Typography>
                   <Button
                     variant="outlined"
-                    onClick={handleConnect}
+                    onClick={
+                      spotifyConnected
+                        ? () => navigate("/dictionary")
+                        : handleConnect
+                    }
                     sx={{
                       mt: 1,
                       borderRadius: 50,
@@ -513,7 +621,9 @@ const Dashboard: React.FC = () => {
                       },
                     }}
                   >
-                    Reconnect Spotify
+                    {spotifyConnected
+                      ? "Explore Dictionary"
+                      : "Connect Spotify"}
                   </Button>
                 </Box>
               )}
@@ -642,15 +752,38 @@ const Dashboard: React.FC = () => {
                     sx={{ fontSize: 48, color: "#535353", mb: 2 }}
                   />
                   <Typography color="text.secondary">
-                    Start listening on Spotify to see your history here.
+                    {spotifyConnected
+                      ? "Start listening on Spotify to see your history here."
+                      : "History appears here after you connect Spotify. Until then, the dictionary and lyrics tools are ready to use."}
                   </Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={
+                      spotifyConnected
+                        ? () => navigate("/search")
+                        : handleConnect
+                    }
+                    sx={{
+                      mt: 2,
+                      borderRadius: 50,
+                      fontWeight: 600,
+                      borderColor: "rgba(29,185,84,0.4)",
+                      color: "#1DB954",
+                      "&:hover": {
+                        borderColor: "#1DB954",
+                        bgcolor: "rgba(29,185,84,0.08)",
+                      },
+                    }}
+                  >
+                    {spotifyConnected ? "Search Music" : "Connect Spotify"}
+                  </Button>
                 </Box>
               )}
             </Box>
           </Stack>
         )}
 
-        <MiniPlayer userId={user._id} />
+        {spotifyConnected && <MiniPlayer userId={user._id} />}
       </Container>
     </Box>
   );

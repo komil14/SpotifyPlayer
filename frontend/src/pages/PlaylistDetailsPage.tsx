@@ -29,8 +29,11 @@ import {
   addFavorite,
   removeFavorite,
   checkFavorite,
+  getSpotifyLoginUrl,
 } from "../services/spotifyService";
 import MiniPlayer from "../components/Player/MiniPlayer";
+import SpotifyConnectPrompt from "../components/Spotify/SpotifyConnectPrompt";
+import { useSpotifyConnection } from "../hooks/useSpotifyConnection";
 
 interface Track {
   id: string;
@@ -60,10 +63,18 @@ const PlaylistDetailsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [favMap, setFavMap] = useState<Record<string, boolean>>({});
+  const { spotifyConnected, loading: connectionLoading } = useSpotifyConnection(
+    user?._id,
+  );
 
   useEffect(() => {
     const fetchTracks = async () => {
-      if (!user || !id) return;
+      if (!user || !id || !spotifyConnected) {
+        setTracks([]);
+        setPlaylistName("");
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const res = await getPlaylistTracks(user._id, id);
@@ -71,18 +82,23 @@ const PlaylistDetailsPage: React.FC = () => {
 
         // Backend may return { name, tracks: [...] } or just an array
         let loadedTracks: Track[] = [];
+        let nextPlaylistName = "";
         if (Array.isArray(data)) {
           loadedTracks = data;
-        } else if (data.tracks) {
+        } else if (data.tracks || data.items) {
           // Handle Spotify's { items: [{ track }] } format
-          const items = Array.isArray(data.tracks.items)
-            ? data.tracks.items
-            : data.tracks;
+          const trackSource = data.tracks ?? data.items;
+          const items = Array.isArray(trackSource?.items)
+            ? trackSource.items
+            : Array.isArray(trackSource)
+              ? trackSource
+              : [];
           loadedTracks = items
             .map((item: any) => item.track || item)
             .filter(Boolean);
-          if (data.name) setPlaylistName(data.name);
+          if (data.name) nextPlaylistName = data.name;
         }
+        setPlaylistName(nextPlaylistName);
         setTracks(loadedTracks);
 
         // Check favorites for loaded tracks
@@ -106,8 +122,18 @@ const PlaylistDetailsPage: React.FC = () => {
       }
     };
 
-    fetchTracks();
-  }, [user, id]);
+    if (!connectionLoading) {
+      fetchTracks();
+    }
+  }, [user, id, spotifyConnected, connectionLoading]);
+
+  const handleConnect = async () => {
+    try {
+      window.location.href = await getSpotifyLoginUrl();
+    } catch (error) {
+      console.error("Failed to start Spotify login", error);
+    }
+  };
 
   const handleToggleFav = async (track: Track, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -204,7 +230,14 @@ const PlaylistDetailsPage: React.FC = () => {
       </Box>
 
       {/* Content */}
-      {loading ? (
+      {!connectionLoading && !spotifyConnected ? (
+        <SpotifyConnectPrompt
+          title="Playlist Playback Needs Spotify"
+          description="This playlist view is powered by your Spotify library. Connect Spotify to browse and play it here, or head back to the public dictionary for the app's open features."
+          onPrimaryAction={handleConnect}
+          onSecondaryAction={() => navigate("/dictionary")}
+        />
+      ) : loading || connectionLoading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
           <CircularProgress />
         </Box>
@@ -309,7 +342,7 @@ const PlaylistDetailsPage: React.FC = () => {
         </Paper>
       )}
 
-      <MiniPlayer userId={user._id} />
+      {spotifyConnected && <MiniPlayer userId={user._id} />}
     </Container>
   );
 };

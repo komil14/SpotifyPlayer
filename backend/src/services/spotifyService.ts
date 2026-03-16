@@ -2,6 +2,16 @@ import axios from "axios";
 import querystring from "querystring";
 import User, { IUser } from "../models/User";
 
+export class SpotifyConnectionError extends Error {
+  code: string;
+
+  constructor(message: string, code = "SPOTIFY_NOT_CONNECTED") {
+    super(message);
+    this.name = "SpotifyConnectionError";
+    this.code = code;
+  }
+}
+
 // Helper: Actually hit the Spotify API to refresh
 export const refreshAccessToken = async (
   user: IUser,
@@ -45,7 +55,7 @@ export const refreshAccessToken = async (
 export const getCurrentlyPlaying = async (userId: string) => {
   const user = await User.findById(userId);
   if (!user || !user.spotifyAccessToken)
-    throw new Error("User not connected to Spotify");
+    throw new SpotifyConnectionError("User not connected to Spotify");
 
   let token = user.spotifyAccessToken;
 

@@ -6,6 +6,7 @@ import User from "../models/User";
 import {
   getCurrentlyPlaying,
   refreshAccessToken,
+  SpotifyConnectionError,
 } from "../services/spotifyService";
 import { getLyrics } from "../services/lyricsService";
 import Lyric from "../models/Lyric";
@@ -60,7 +61,9 @@ const spotifyApiCall = async (
   retries = 2,
 ) => {
   const user = await User.findById(userId);
-  if (!user?.spotifyAccessToken) throw new Error("No Spotify token");
+  if (!user?.spotifyAccessToken) {
+    throw new SpotifyConnectionError("No Spotify token");
+  }
 
   const makeRequest = (token: string) =>
     axios({
@@ -108,6 +111,12 @@ const spotifyApiCall = async (
 
   throw lastError;
 };
+
+const isExpectedSpotifyStateError = (error: any): boolean =>
+  error instanceof SpotifyConnectionError ||
+  error?.name === "SpotifyConnectionError" ||
+  error?.message === "No Spotify token" ||
+  error?.message === "User not connected to Spotify";
 
 // @desc    Create Spotify Auth URL for the authenticated user
 // @route   GET /api/spotify/login-url
@@ -384,7 +393,9 @@ export const getCurrentTrack = async (req: Request, res: Response) => {
     // Then let the Frontend see the "null" lyrics and trigger a separate fetch.
     // This ensures the Image/Title load instantly.
   } catch (error) {
-    console.error(error);
+    if (!isExpectedSpotifyStateError(error)) {
+      console.error(error);
+    }
     res.status(200).json({ isPlaying: false });
   }
 };
@@ -403,7 +414,11 @@ export const getUserProfile = async (req: Request, res: Response) => {
       url: "https://api.spotify.com/v1/me",
     });
     res.json(response.data);
-  } catch (error) {
+  } catch (error: any) {
+    if (isExpectedSpotifyStateError(error)) {
+      res.status(200).json(null);
+      return;
+    }
     console.error("Profile Error", error);
     res.status(500).json(null);
   }
@@ -423,7 +438,11 @@ export const getTopTracks = async (req: Request, res: Response) => {
       url: "https://api.spotify.com/v1/me/top/tracks?limit=10&time_range=short_term",
     });
     res.json(response.data.items);
-  } catch (error) {
+  } catch (error: any) {
+    if (isExpectedSpotifyStateError(error)) {
+      res.status(200).json([]);
+      return;
+    }
     console.error("Top Tracks Error", error);
     res.status(500).json([]);
   }
@@ -443,7 +462,11 @@ export const getRecentlyPlayed = async (req: Request, res: Response) => {
       url: "https://api.spotify.com/v1/me/player/recently-played?limit=10",
     });
     res.json(response.data.items);
-  } catch (error) {
+  } catch (error: any) {
+    if (isExpectedSpotifyStateError(error)) {
+      res.status(200).json([]);
+      return;
+    }
     console.error("Recent Tracks Error", error);
     res.status(500).json([]);
   }
@@ -463,7 +486,11 @@ export const getUserPlaylists = async (req: Request, res: Response) => {
       url: "https://api.spotify.com/v1/me/playlists",
     });
     res.json(response.data.items);
-  } catch (error) {
+  } catch (error: any) {
+    if (isExpectedSpotifyStateError(error)) {
+      res.status(200).json([]);
+      return;
+    }
     res.status(500).json([]);
   }
 };
@@ -483,7 +510,11 @@ export const searchSpotify = async (req: Request, res: Response) => {
       url: `https://api.spotify.com/v1/search?q=${encodeURIComponent(q as string)}&type=track,artist,album&limit=10`,
     });
     res.json(response.data.tracks.items);
-  } catch (error) {
+  } catch (error: any) {
+    if (isExpectedSpotifyStateError(error)) {
+      res.status(200).json([]);
+      return;
+    }
     res.status(500).json([]);
   }
 };
@@ -507,15 +538,24 @@ export const getPlaylistTracks = async (req: Request, res: Response) => {
   try {
     const response = await spotifyApiCall(userId, {
       method: "get",
-      url: `https://api.spotify.com/v1/playlists/${id}/tracks`,
+      url:
+        "https://api.spotify.com/v1/playlists/" +
+        `${id}?fields=name,tracks.items(track(id,name,uri,artists(name),album(name,images),duration_ms))`,
     });
-    res.json(response.data.items);
+    res.json({
+      name: response.data.name,
+      tracks: response.data.tracks?.items || [],
+    });
   } catch (error: any) {
+    if (isExpectedSpotifyStateError(error)) {
+      res.status(200).json({ name: "", tracks: [] });
+      return;
+    }
     console.error(
       "Playlist Fetch Error:",
       error.response?.data || error.message,
     );
-    res.status(500).json([]);
+    res.status(500).json({ name: "", tracks: [] });
   }
 };
 

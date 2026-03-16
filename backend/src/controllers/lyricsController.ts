@@ -36,8 +36,11 @@ export const addManualSong = async (req: Request, res: Response) => {
 // @route GET /api/lyrics/all
 export const getAllCachedSongs = async (req: Request, res: Response) => {
   try {
-    // Select only trackName and artistName to keep payload light
-    const songs = await Lyric.find({}, "trackName artistName");
+    // Include cached lyric text so the dictionary can build trees from the DB.
+    const songs = await Lyric.find(
+      {},
+      "trackName artistName plainLyrics syncedLyrics isManual",
+    );
     res.json(songs);
   } catch (error) {
     res.status(500).json({ message: "Server Error" });

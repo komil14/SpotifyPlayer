@@ -27,13 +27,10 @@ import {
   Album,
 } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
-import {
-  getProfile,
-  getStats,
-  getSpotifyLoginUrl,
-} from "../services/spotifyService";
+import { getStats, getSpotifyLoginUrl } from "../services/spotifyService";
 import { useNavigate } from "react-router-dom";
 import { keyframes } from "@emotion/react";
+import { useSpotifyConnection } from "../hooks/useSpotifyConnection";
 
 const pulse = keyframes`
   0% { box-shadow: 0 0 0 0 rgba(29, 185, 84, 0.5); }
@@ -47,51 +44,31 @@ const float = keyframes`
   100% { transform: translateY(0px); }
 `;
 
-interface SpotifyProfile {
-  display_name: string;
-  email?: string;
-  images?: { url: string }[];
-  product?: string;
-  country?: string;
-  followers?: { total: number };
-  external_urls?: { spotify: string };
-}
-
 const ProfilePage: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-
-  const [profile, setProfile] = useState<SpotifyProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [spotifyConnected, setSpotifyConnected] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const { profile, spotifyConnected, loading: profileLoading } =
+    useSpotifyConnection(user?._id);
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchStats = async () => {
       if (!user) return;
-      setLoading(true);
+      setStatsLoading(true);
       try {
-        const profileRes = await getProfile(user._id).catch(() => null);
         const statsRes = await getStats(user._id).catch(() => null);
-        if (profileRes) {
-          const data = (profileRes as any).data;
-          if (data && data.display_name) {
-            setProfile(data);
-            setSpotifyConnected(true);
-          }
-        }
         if (statsRes) {
           setStats((statsRes as any).data);
         }
       } catch (err: any) {
         console.error("Failed to load profile", err);
-        setSpotifyConnected(false);
       } finally {
-        setLoading(false);
+        setStatsLoading(false);
       }
     };
 
-    fetchProfile();
+    fetchStats();
   }, [user]);
 
   const handleConnect = async () => {
@@ -110,6 +87,7 @@ const ProfilePage: React.FC = () => {
 
   if (!user) return null;
 
+  const loading = profileLoading || statsLoading;
   const avatarUrl = profile?.images?.[0]?.url;
 
   return (
@@ -335,23 +313,43 @@ const ProfilePage: React.FC = () => {
                 ) : (
                   <Box>
                     <Typography color="text.secondary" sx={{ mb: 2 }}>
-                      Connect your Spotify to unlock all features
+                      Spotify is optional here. Connect it only if you want
+                      live playback, playlists, and profile import.
                     </Typography>
-                    <Button
-                      variant="contained"
-                      startIcon={<LinkIcon />}
-                      onClick={handleConnect}
-                      sx={{
-                        borderRadius: 50,
-                        fontWeight: 700,
-                        bgcolor: "#1DB954",
-                        color: "#000",
-                        animation: `${pulse} 2.5s infinite`,
-                        "&:hover": { bgcolor: "#1ed760" },
-                      }}
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1.5}
+                      justifyContent="center"
                     >
-                      Connect Spotify
-                    </Button>
+                      <Button
+                        variant="contained"
+                        startIcon={<LinkIcon />}
+                        onClick={handleConnect}
+                        sx={{
+                          borderRadius: 50,
+                          fontWeight: 700,
+                          bgcolor: "#1DB954",
+                          color: "#000",
+                          animation: `${pulse} 2.5s infinite`,
+                          "&:hover": { bgcolor: "#1ed760" },
+                        }}
+                      >
+                        Connect Spotify
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => navigate("/dictionary")}
+                        sx={{
+                          borderRadius: 50,
+                          borderColor: "rgba(255,255,255,0.18)",
+                          color: "white",
+                          fontWeight: 600,
+                          "&:hover": { borderColor: "#1DB954", color: "#1DB954" },
+                        }}
+                      >
+                        Open Dictionary
+                      </Button>
+                    </Stack>
                   </Box>
                 )}
               </Box>

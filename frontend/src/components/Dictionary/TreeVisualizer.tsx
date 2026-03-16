@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { TreeNode } from "../../utils/bst/BST";
 import { Box, IconButton, Tooltip, Typography } from "@mui/material";
 import { Add, Remove, CenterFocusStrong } from "@mui/icons-material";
@@ -14,30 +14,48 @@ interface Props {
 const TreeVisualizer: React.FC<Props> = ({
   root,
   highlightKeys = [],
-  version,
+  version = 0,
   isAnimating = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // --- SETTINGS ---
   const NODE_RADIUS = 28;
   const Y_SPACING = 120;
   const MIN_NODE_GAP = 60;
+  const FIT_PADDING = 120;
 
-  // --- ZOOM/PAN STATE ---
-  const [zoom, setZoom] = useState(0.6);
-  const [offset, setOffset] = useState({ x: 0, y: 80 });
+  const [zoom, setZoom] = useState(1);
+  const [center, setCenter] = useState({ x: 0, y: 0 });
+  const [viewport, setViewport] = useState({ width: 1, height: 1 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
+  const dragCenter = useRef({ x: 0, y: 0 });
 
-  // --- LAYOUT ENGINE ---
   const layout = useMemo(() => {
-    if (!root) return { nodes: [], edges: [], rootX: 0 };
+    if (!root) {
+      return {
+        nodes: [] as Array<{
+          id: number;
+          label: string;
+          x: number;
+          y: number;
+          color: string;
+          glow: string;
+        }>,
+        edges: [] as Array<{
+          id: string;
+          x1: number;
+          y1: number;
+          x2: number;
+          y2: number;
+        }>,
+        bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+        center: { x: 0, y: 0 },
+      };
+    }
 
-    // Map by ID for drawing lines
     const positionMap = new Map<number, { x: number; y: number }>();
 
-    // 1. Calculate Widths
     const getSubtreeWidth = (node: TreeNode | null): number => {
       if (!node) return 0;
       const leftW = getSubtreeWidth(node.left);
@@ -45,41 +63,26 @@ const TreeVisualizer: React.FC<Props> = ({
       return Math.max(MIN_NODE_GAP, leftW + rightW + 40);
     };
 
-    // 2. Calculate Positions
     const calculatePositions = (node: TreeNode, startX: number, y: number) => {
       positionMap.set(node._id, { x: 0, y });
 
       const leftWidth = getSubtreeWidth(node.left);
-      const rightWidth = getSubtreeWidth(node.right);
-
       let myX = startX;
 
       if (node.left && node.right) {
-        const leftRootRelX = calculatePositions(
-          node.left,
-          startX,
-          y + Y_SPACING
-        );
-        const rightRootRelX = calculatePositions(
+        const leftRootX = calculatePositions(node.left, startX, y + Y_SPACING);
+        const rightRootX = calculatePositions(
           node.right,
           startX + leftWidth,
-          y + Y_SPACING
+          y + Y_SPACING,
         );
-        myX = (leftRootRelX + rightRootRelX) / 2;
+        myX = (leftRootX + rightRootX) / 2;
       } else if (node.left) {
-        const leftRootRelX = calculatePositions(
-          node.left,
-          startX,
-          y + Y_SPACING
-        );
-        myX = leftRootRelX + 20;
+        const leftRootX = calculatePositions(node.left, startX, y + Y_SPACING);
+        myX = leftRootX + 20;
       } else if (node.right) {
-        const rightRootRelX = calculatePositions(
-          node.right,
-          startX,
-          y + Y_SPACING
-        );
-        myX = rightRootRelX - 20;
+        const rightRootX = calculatePositions(node.right, startX, y + Y_SPACING);
+        myX = rightRootX - 20;
       } else {
         myX = startX + (NODE_RADIUS * 2 + 40) / 2;
       }
@@ -88,11 +91,23 @@ const TreeVisualizer: React.FC<Props> = ({
       return myX;
     };
 
-    const rootX = calculatePositions(root, 0, 0);
+    calculatePositions(root, 0, 0);
 
-    // 3. Generate Draw Objects
-    const nodesToDraw: any[] = [];
-    const edgesToDraw: any[] = [];
+    const nodesToDraw: Array<{
+      id: number;
+      label: string;
+      x: number;
+      y: number;
+      color: string;
+      glow: string;
+    }> = [];
+    const edgesToDraw: Array<{
+      id: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    }> = [];
 
     const traverseAndCollect = (node: TreeNode) => {
       const pos = positionMap.get(node._id);
@@ -112,8 +127,8 @@ const TreeVisualizer: React.FC<Props> = ({
       }
 
       nodesToDraw.push({
-        id: node._id, // Use unique ID for React Keys
-        label: node.key, // Use Name for Display & Search
+        id: node._id,
+        label: node.key,
         x: pos.x,
         y: pos.y,
         color: fillColor,
@@ -151,94 +166,141 @@ const TreeVisualizer: React.FC<Props> = ({
 
     traverseAndCollect(root);
 
-    return { nodes: nodesToDraw, edges: edgesToDraw, rootX };
-  }, [root, version]);
+    const xs = nodesToDraw.map((node) => node.x);
+    const ys = nodesToDraw.map((node) => node.y);
+    const bounds = {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minY: Math.min(...ys),
+      maxY: Math.max(...ys),
+    };
 
-  // --- AUTO FOCUS / SEARCH ---
+    return {
+      nodes: nodesToDraw,
+      edges: edgesToDraw,
+      bounds,
+      center: {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2,
+      },
+    };
+  }, [root]);
+
   useEffect(() => {
-    // Check if we have highlight keys and nodes
-    if (
-      highlightKeys &&
-      highlightKeys.length > 0 &&
-      containerRef.current &&
-      layout.nodes.length > 0
-    ) {
-      // During animation, zoom to the LAST (most recent) highlighted node
-      if (isAnimating && highlightKeys.length > 0) {
+    if (!containerRef.current) return;
+
+    const updateViewport = () => {
+      if (!containerRef.current) return;
+      setViewport({
+        width: containerRef.current.offsetWidth,
+        height: containerRef.current.offsetHeight,
+      });
+    };
+
+    updateViewport();
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const baseView = useMemo(() => {
+    const width = Math.max(
+      layout.bounds.maxX - layout.bounds.minX + NODE_RADIUS * 2 + FIT_PADDING * 2,
+      300,
+    );
+    const height = Math.max(
+      layout.bounds.maxY - layout.bounds.minY + NODE_RADIUS * 2 + FIT_PADDING * 2,
+      300,
+    );
+
+    if (viewport.width <= 1 || viewport.height <= 1) {
+      return { width, height };
+    }
+
+    const viewportRatio = viewport.width / viewport.height;
+    const treeRatio = width / height;
+
+    if (treeRatio > viewportRatio) {
+      return { width, height: width / viewportRatio };
+    }
+
+    return { width: height * viewportRatio, height };
+  }, [FIT_PADDING, NODE_RADIUS, layout.bounds, viewport.height, viewport.width]);
+
+  const fitTreeToViewport = useCallback(() => {
+    if (layout.nodes.length === 0) return;
+    setCenter(layout.center);
+    setZoom(1);
+  }, [layout.center, layout.nodes.length]);
+
+  useEffect(() => {
+    if (layout.nodes.length === 0) return;
+
+    if (highlightKeys.length > 0) {
+      if (isAnimating) {
         const targetLabel = highlightKeys[highlightKeys.length - 1];
-        const targetNode = layout.nodes.find(
-          (n: any) => n.label === targetLabel
-        );
-
+        const targetNode = layout.nodes.find((node) => node.label === targetLabel);
         if (targetNode) {
-          const centerX = containerRef.current.offsetWidth / 2;
-          const centerY = containerRef.current.offsetHeight / 2;
-
-          setOffset({
-            x: centerX - targetNode.x,
-            y: centerY - targetNode.y,
-          });
-          setZoom(1);
+          setCenter({ x: targetNode.x, y: targetNode.y });
+          setZoom(2.2);
         }
         return;
       }
 
-      // If multiple nodes highlighted but NOT animating, don't zoom in
-      if (highlightKeys.length > 1) {
-        return;
+      if (highlightKeys.length === 1) {
+        const targetNode = layout.nodes.find(
+          (node) => node.label === highlightKeys[0],
+        );
+        if (targetNode) {
+          setCenter({ x: targetNode.x, y: targetNode.y });
+          setZoom(2);
+        }
       }
-
-      // Single node highlight - zoom in on it
-      const targetLabel = highlightKeys[0];
-
-      const targetNode = layout.nodes.find((n: any) => n.label === targetLabel);
-
-      if (targetNode) {
-        const centerX = containerRef.current.offsetWidth / 2;
-        const centerY = containerRef.current.offsetHeight / 2;
-
-        setOffset({
-          x: centerX - targetNode.x,
-          y: centerY - targetNode.y,
-        });
-        setZoom(1);
-      }
-    } else if (
-      containerRef.current &&
-      layout.nodes.length > 0 &&
-      highlightKeys.length === 0
-    ) {
-      // Only center on root if we are NOT searching
-      const centerX = containerRef.current.offsetWidth / 2;
-      setOffset({ x: centerX - (layout.rootX || 0), y: 120 });
+      return;
     }
-  }, [highlightKeys, layout.nodes, layout.rootX, isAnimating]);
 
-  // --- MOUSE HANDLERS ---
+    const frame = requestAnimationFrame(() => {
+      fitTreeToViewport();
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [fitTreeToViewport, highlightKeys, isAnimating, layout.nodes, version]);
+
+  const viewBox = useMemo(() => {
+    const width = baseView.width / zoom;
+    const height = baseView.height / zoom;
+    return {
+      x: center.x - width / 2,
+      y: center.y - height / 2,
+      width,
+      height,
+    };
+  }, [baseView.height, baseView.width, center.x, center.y, zoom]);
+
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
-    const scaleAmount = -e.deltaY * 0.001;
-    setZoom((z) => Math.min(Math.max(0.1, z + scaleAmount), 2));
+    const direction = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom((current) => Math.min(Math.max(current * direction, 0.35), 6));
   };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
-    dragStart.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    dragCenter.current = center;
   };
+
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setOffset({
-      x: e.clientX - dragStart.current.x,
-      y: e.clientY - dragStart.current.y,
+    if (!isDragging || viewport.width <= 1 || viewport.height <= 1) return;
+
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    const worldDx = (dx / viewport.width) * viewBox.width;
+    const worldDy = (dy / viewport.height) * viewBox.height;
+
+    setCenter({
+      x: dragCenter.current.x - worldDx,
+      y: dragCenter.current.y - worldDy,
     });
-  };
-  const handleReset = () => {
-    if (containerRef.current) {
-      setZoom(0.6);
-      setOffset({
-        x: containerRef.current.offsetWidth / 2 - (layout.rootX || 0),
-        y: 120,
-      });
-    }
   };
 
   return (
@@ -263,7 +325,6 @@ const TreeVisualizer: React.FC<Props> = ({
       onMouseUp={() => setIsDragging(false)}
       onMouseLeave={() => setIsDragging(false)}
     >
-      {/* Controls */}
       <Box
         sx={{
           position: "absolute",
@@ -282,7 +343,7 @@ const TreeVisualizer: React.FC<Props> = ({
           <IconButton
             size="small"
             sx={{ color: "white" }}
-            onClick={() => setZoom((z) => Math.min(z + 0.2, 2))}
+            onClick={() => setZoom((current) => Math.min(current * 1.2, 6))}
           >
             <Add />
           </IconButton>
@@ -291,17 +352,13 @@ const TreeVisualizer: React.FC<Props> = ({
           <IconButton
             size="small"
             sx={{ color: "white" }}
-            onClick={() => setZoom((z) => Math.max(z - 0.2, 0.1))}
+            onClick={() => setZoom((current) => Math.max(current * 0.85, 0.35))}
           >
             <Remove />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Center">
-          <IconButton
-            size="small"
-            sx={{ color: "white" }}
-            onClick={handleReset}
-          >
+        <Tooltip title="Fit Tree">
+          <IconButton size="small" sx={{ color: "white" }} onClick={fitTreeToViewport}>
             <CenterFocusStrong />
           </IconButton>
         </Tooltip>
@@ -322,90 +379,85 @@ const TreeVisualizer: React.FC<Props> = ({
         </Typography>
       )}
 
-      <motion.svg width="100%" height="100%" style={{ touchAction: "none" }}>
-        <motion.g
-          initial={false}
-          animate={{ x: offset.x, y: offset.y, scale: zoom }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        >
-          <AnimatePresence>
-            {/* 1. EDGES */}
-            {layout.edges.map((edge, i) => (
-              <motion.line
-                key={i}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                x1={edge.x1}
-                y1={edge.y1}
-                x2={edge.x2}
-                y2={edge.y2}
-                stroke="rgba(255, 255, 255, 0.3)"
-                strokeWidth="1.5"
-              />
-            ))}
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ touchAction: "none" }}
+      >
+        <AnimatePresence>
+          {layout.edges.map((edge) => (
+            <motion.line
+              key={edge.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              x1={edge.x1}
+              y1={edge.y1}
+              x2={edge.x2}
+              y2={edge.y2}
+              stroke="rgba(255, 255, 255, 0.3)"
+              strokeWidth="1.5"
+            />
+          ))}
 
-            {/* 2. NODES */}
-            {layout.nodes.map((node) => {
-              // Check if 'node.label' (The Name) is in the highlight list
-              const isHighlighted = highlightKeys.includes(node.label);
+          {layout.nodes.map((node) => {
+            const isHighlighted = highlightKeys.includes(node.label);
 
-              return (
-                <motion.g
-                  key={node.id}
-                  initial={{ scale: 0 }}
-                  animate={{
-                    x: node.x,
-                    y: node.y,
-                    scale: isHighlighted ? 1.3 : 1,
+            return (
+              <motion.g
+                key={node.id}
+                initial={{ scale: 0 }}
+                animate={{
+                  x: node.x,
+                  y: node.y,
+                  scale: isHighlighted ? 1.3 : 1,
+                }}
+                exit={{ scale: 0 }}
+              >
+                {isHighlighted && (
+                  <circle
+                    r={NODE_RADIUS + 8}
+                    fill="none"
+                    stroke="#FFD700"
+                    strokeWidth="4"
+                    style={{ filter: "drop-shadow(0 0 15px #FFD700)" }}
+                  />
+                )}
+
+                <circle
+                  r={NODE_RADIUS + 4}
+                  fill={node.glow}
+                  style={{ filter: "blur(8px)" }}
+                />
+                <circle
+                  r={NODE_RADIUS}
+                  fill={node.color}
+                  stroke="rgba(255,255,255,0.8)"
+                  strokeWidth="2"
+                />
+
+                <text
+                  dy=".3em"
+                  textAnchor="middle"
+                  fill="white"
+                  fontSize={node.label.length > 12 ? "9px" : "11px"}
+                  fontWeight="bold"
+                  style={{
+                    pointerEvents: "none",
+                    textShadow: "0px 2px 4px black",
                   }}
-                  exit={{ scale: 0 }}
-                  layout
                 >
-                  {/* Gold Ring for Matches */}
-                  {isHighlighted && (
-                    <circle
-                      r={NODE_RADIUS + 8}
-                      fill="none"
-                      stroke="#FFD700"
-                      strokeWidth="4"
-                      style={{ filter: "drop-shadow(0 0 15px #FFD700)" }}
-                    />
-                  )}
-
-                  <circle
-                    r={NODE_RADIUS + 4}
-                    fill={node.glow}
-                    style={{ filter: "blur(8px)" }}
-                  />
-                  <circle
-                    r={NODE_RADIUS}
-                    fill={node.color}
-                    stroke="rgba(255,255,255,0.8)"
-                    strokeWidth="2"
-                  />
-
-                  <text
-                    dy=".3em"
-                    textAnchor="middle"
-                    fill="white"
-                    fontSize={node.label.length > 12 ? "9px" : "11px"}
-                    fontWeight="bold"
-                    style={{
-                      pointerEvents: "none",
-                      textShadow: "0px 2px 4px black",
-                    }}
-                  >
-                    {node.label.length > 15
-                      ? node.label.substring(0, 12) + ".."
-                      : node.label}
-                  </text>
-                </motion.g>
-              );
-            })}
-          </AnimatePresence>
-        </motion.g>
-      </motion.svg>
+                  {node.label.length > 15
+                    ? `${node.label.substring(0, 12)}..`
+                    : node.label}
+                </text>
+              </motion.g>
+            );
+          })}
+        </AnimatePresence>
+      </svg>
     </Box>
   );
 };

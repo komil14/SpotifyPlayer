@@ -8,7 +8,9 @@ const connectDB = async (): Promise<void> => {
       "mongodb://localhost:27017/spotify-app";
 
     const conn = await mongoose.connect(MONGO_URI);
-    console.log(`✓ MongoDB Connected: ${conn.connection.host}`);
+    console.log(
+      `✓ MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`,
+    );
   } catch (error) {
     console.error("✗ MongoDB Connection Error:", error);
     process.exit(1);

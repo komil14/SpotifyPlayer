@@ -1,9 +1,26 @@
 import express, { Express, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
 
 // ─── Load environment variables FIRST ────────────────────────────
-dotenv.config();
+const envCandidates = [
+  process.env.NODE_ENV === "production"
+    ? path.resolve(__dirname, "../.env.production")
+    : "",
+  path.resolve(__dirname, "../.env"),
+  path.resolve(process.cwd(), ".env"),
+  path.resolve(process.cwd(), "backend/.env"),
+].filter(Boolean);
+
+for (const envPath of envCandidates) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: true });
+    console.log(`✓ Loaded env from: ${envPath}`);
+    break;
+  }
+}
 
 import connectDB from "./config/db";
 

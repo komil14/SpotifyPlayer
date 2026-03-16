@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Box,
   Container,
   Typography,
   TextField,
@@ -9,9 +10,8 @@ import {
   Avatar,
   ListItemText,
   IconButton,
-  Paper,
-  Box,
   ListItemButton,
+  Paper,
 } from "@mui/material";
 import { PlayArrow, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
@@ -22,9 +22,12 @@ import {
   addFavorite,
   removeFavorite,
   checkFavorite,
+  getSpotifyLoginUrl,
 } from "../services/spotifyService";
 import { useNavigate } from "react-router-dom";
 import MiniPlayer from "../components/Player/MiniPlayer";
+import SpotifyConnectPrompt from "../components/Spotify/SpotifyConnectPrompt";
+import { useSpotifyConnection } from "../hooks/useSpotifyConnection";
 
 const SearchPage: React.FC = () => {
   const { user } = useAuth();
@@ -32,9 +35,11 @@ const SearchPage: React.FC = () => {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [favMap, setFavMap] = useState<Record<string, boolean>>({});
+  const { spotifyConnected } = useSpotifyConnection(user?._id);
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !query) return;
+    if (!user || !query || !spotifyConnected) return;
 
     try {
       const res = (await searchTracks(user._id, query)) as any;
@@ -55,6 +60,14 @@ const SearchPage: React.FC = () => {
       setFavMap(favChecks);
     } catch (err) {
       console.error("Search failed:", err);
+    }
+  };
+
+  const handleConnect = async () => {
+    try {
+      window.location.href = await getSpotifyLoginUrl();
+    } catch (error) {
+      console.error("Failed to start Spotify login", error);
     }
   };
 
@@ -114,6 +127,17 @@ const SearchPage: React.FC = () => {
         Search
       </Typography>
 
+      {!spotifyConnected && (
+        <Box sx={{ mb: 4 }}>
+          <SpotifyConnectPrompt
+            title="Spotify Search Is Optional"
+            description="Catalog search and instant playback come from Spotify. Until you connect it, the public dictionary remains the best place to explore lyrics and song structures."
+            onPrimaryAction={handleConnect}
+            onSecondaryAction={() => navigate("/dictionary")}
+          />
+        </Box>
+      )}
+
       <form onSubmit={handleSearch}>
         <TextField
           fullWidth
@@ -123,6 +147,7 @@ const SearchPage: React.FC = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           sx={{ mb: 4, bgcolor: "background.paper", borderRadius: 1 }}
+          disabled={!spotifyConnected}
         />
       </form>
 
@@ -178,14 +203,14 @@ const SearchPage: React.FC = () => {
       )}
 
       {/* Show message if no results yet */}
-      {results.length === 0 && query.length > 0 && (
+      {spotifyConnected && results.length === 0 && query.length > 0 && (
         <Typography color="text.secondary" align="center" sx={{ mt: 4 }}>
           Press Enter to search...
         </Typography>
       )}
 
       {/* Persistent Mini Player */}
-      {user && <MiniPlayer userId={user._id} />}
+      {user && spotifyConnected && <MiniPlayer userId={user._id} />}
     </Container>
   );
 };

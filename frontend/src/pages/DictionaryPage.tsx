@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { flushSync } from "react-dom";
 import {
   Container,
@@ -19,10 +19,17 @@ import TreeVisualizer from "../components/Dictionary/TreeVisualizer";
 import {
   getAllCachedSongs,
   addManualSong,
-  getCurrentTrack,
-  getLyrics,
 } from "../services/spotifyService";
 import { useAuth } from "../context/AuthContext";
+
+interface LibrarySong {
+  _id: string;
+  trackName: string;
+  artistName: string;
+  plainLyrics?: string | null;
+  syncedLyrics?: string | null;
+  isManual?: boolean;
+}
 
 const DictionaryPage: React.FC = () => {
   const { user } = useAuth();
@@ -48,12 +55,50 @@ const DictionaryPage: React.FC = () => {
     "success" | "error" | "info" | "warning"
   >("info");
   const [highlightKeys, setHighlightKeys] = useState<string[]>([]);
+  const [librarySongs, setLibrarySongs] = useState<LibrarySong[]>([]);
 
   // --- ANIMATION STATE ---
   const [isAnimating, setIsAnimating] = useState(false);
   const animationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const refresh = () => setVersion((v) => v + 1);
+
+  const countTreeNodes = useCallback((node: any): number => {
+    if (!node) return 0;
+    return 1 + countTreeNodes(node.left) + countTreeNodes(node.right);
+  }, []);
+
+  const buildLibraryTree = useCallback(
+    (songs: LibrarySong[]) => {
+      bstRef.current = new BinarySearchTree();
+      rbtRef.current = new RedBlackTree();
+
+      songs.forEach((song) => {
+        const key = buildMode === "TITLE" ? song.trackName : song.artistName;
+        if (!key) return;
+        bstRef.current.insert(key, "GREEN");
+        rbtRef.current.insert(key);
+      });
+    },
+    [buildMode],
+  );
+
+  const tokenizeLyrics = (songs: LibrarySong[], sorted: boolean) => {
+    const words = songs
+      .flatMap((song) =>
+        (song.plainLyrics || "")
+          .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, " ")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((word) => word.length > 0),
+      );
+
+    if (sorted) {
+      words.sort();
+    }
+
+    return words;
+  };
 
   // --- CLEANUP ANIMATION TIMEOUTS ON UNMOUNT ---
   useEffect(() => {
@@ -117,43 +162,36 @@ const DictionaryPage: React.FC = () => {
 
   // --- 1. LOAD DATABASE ---
   useEffect(() => {
+    const loadDatabase = async () => {
+      try {
+        const res = (await getAllCachedSongs()) as any;
+        const songs = (res.data || []) as LibrarySong[];
+        setLibrarySongs(songs);
+        buildLibraryTree(songs);
+
+        refresh();
+        setAlertMsg(
+          `Loaded ${songs.length} songs by ${
+            buildMode === "TITLE" ? "Title" : "Artist"
+          }.`,
+        );
+        setAlertType("success");
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
     loadDatabase();
-  }, [buildMode]);
-
-  const loadDatabase = async () => {
-    try {
-      const res = (await getAllCachedSongs()) as any;
-      const songs = res.data || [];
-
-      bstRef.current = new BinarySearchTree();
-      rbtRef.current = new RedBlackTree();
-
-      songs.forEach((s: any) => {
-        let key = "";
-        if (buildMode === "TITLE") {
-          key = s.trackName;
-        } else {
-          key = s.artistName;
-        }
-
-        bstRef.current.insert(key, "GREEN");
-        rbtRef.current.insert(key);
-      });
-
-      refresh();
-      setAlertMsg(
-        `Loaded ${songs.length} songs by ${
-          buildMode === "TITLE" ? "Title" : "Artist"
-        }.`
-      );
-      setAlertType("success");
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  }, [buildLibraryTree, buildMode]);
 
   // --- 2. INSERT ---
   const handleInsert = async () => {
+    if (!user) {
+      setAlertMsg("Log in to save songs to the shared library.");
+      setAlertType("info");
+      return;
+    }
+
     if (!songName || !artistName) return;
     if (isAnimating) return; // Prevent multiple inserts during animation
 
@@ -204,52 +242,35 @@ const DictionaryPage: React.FC = () => {
     }
   };
 
-  // --- 4. LOAD FROM SPOTIFY ---
-  const loadLyricsFromSpotify = async (sorted: boolean) => {
-    if (!user) return;
-    setAlertMsg("Fetching lyrics...");
-    try {
-      const trackRes = (await getCurrentTrack(user._id)) as any;
-      if (!trackRes.data || !trackRes.data.item) {
-        setAlertMsg("Nothing playing on Spotify.");
-        return;
-      }
-      const item = trackRes.data.item;
-      const lyricRes = await getLyrics(
-        item.name,
-        item.artists[0],
-        item.id,
-        item.durationMs
-      );
-      const lyricsData = lyricRes.data as any;
-
-      if (lyricsData && lyricsData.plainLyrics) {
-        const rawText = lyricsData.plainLyrics;
-        const words = rawText
-          .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "")
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((w: string) => w.length > 0);
-
-        bstRef.current = new BinarySearchTree();
-        rbtRef.current = new RedBlackTree();
-
-        if (sorted) words.sort();
-
-        const limit = sorted ? 30 : 50;
-        words.slice(0, limit).forEach((w: string) => {
-          bstRef.current.insert(w, "GREEN");
-          rbtRef.current.insert(w);
-        });
-
-        refresh();
-        setAlertMsg(`Loaded lyrics for "${item.name}"`);
-      } else {
-        setAlertMsg("No lyrics found.");
-      }
-    } catch (err) {
-      console.error(err);
+  // --- 4. LOAD CACHED LYRICS FROM DB ---
+  const loadLyricsFromDatabase = async (sorted: boolean) => {
+    if (librarySongs.length === 0) {
+      setAlertMsg("No cached songs found in the lyrics collection.");
+      setAlertType("info");
+      return;
     }
+
+    const words = tokenizeLyrics(librarySongs, sorted);
+    if (words.length === 0) {
+      setAlertMsg("No cached plain lyrics found in the database yet.");
+      setAlertType("info");
+      return;
+    }
+
+    bstRef.current = new BinarySearchTree();
+    rbtRef.current = new RedBlackTree();
+
+    const limit = sorted ? 60 : 100;
+    words.slice(0, limit).forEach((word) => {
+      bstRef.current.insert(word, "GREEN");
+      rbtRef.current.insert(word);
+    });
+
+    refresh();
+    setAlertMsg(
+      `Loaded ${Math.min(words.length, limit)} cached lyric words from the database.`,
+    );
+    setAlertType("success");
   };
 
   // --- 5. SEARCH WITH PATH ANIMATION ---
@@ -306,6 +327,32 @@ const DictionaryPage: React.FC = () => {
 
   const currentTree = viewMode === "BST" ? bstRef.current : rbtRef.current;
   const height = currentTree.getHeight();
+  const uniqueTitleCount = useMemo(
+    () =>
+      new Set(
+        librarySongs
+          .map((song) => song.trackName?.trim().toLowerCase())
+          .filter(Boolean),
+      ).size,
+    [librarySongs],
+  );
+  const uniqueArtistCount = useMemo(
+    () =>
+      new Set(
+        librarySongs
+          .map((song) => song.artistName?.trim().toLowerCase())
+          .filter(Boolean),
+      ).size,
+    [librarySongs],
+  );
+  const lyricsDocumentCount = librarySongs.length;
+  const songsWithCachedLyrics = useMemo(
+    () => librarySongs.filter((song) => Boolean(song.plainLyrics)).length,
+    [librarySongs],
+  );
+  const renderedNodeCount = countTreeNodes(currentTree.root);
+  const uniqueKeyCount =
+    buildMode === "TITLE" ? uniqueTitleCount : uniqueArtistCount;
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, pb: 10 }}>
@@ -313,8 +360,52 @@ const DictionaryPage: React.FC = () => {
         Song Library Tree
       </Typography>
       <Typography color="gray" sx={{ mb: 4 }}>
-        Visualizing Database Indexing. Green = Saved | Blue = Just Added
+        Visualizing the lyrics collection in MongoDB. Green = Saved | Blue = Just Added
       </Typography>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={2}
+        sx={{ mb: 3, flexWrap: "wrap" }}
+      >
+        <Paper sx={{ p: 2, minWidth: 180, bgcolor: "#181818" }}>
+          <Typography variant="caption" color="gray">
+            Lyrics Documents
+          </Typography>
+          <Typography variant="h5" fontWeight={700}>
+            {lyricsDocumentCount}
+          </Typography>
+        </Paper>
+        <Paper sx={{ p: 2, minWidth: 180, bgcolor: "#181818" }}>
+          <Typography variant="caption" color="gray">
+            Unique {buildMode === "TITLE" ? "Titles" : "Artists"}
+          </Typography>
+          <Typography variant="h5" fontWeight={700}>
+            {uniqueKeyCount}
+          </Typography>
+        </Paper>
+        <Paper sx={{ p: 2, minWidth: 180, bgcolor: "#181818" }}>
+          <Typography variant="caption" color="gray">
+            Rendered Tree Nodes
+          </Typography>
+          <Typography variant="h5" fontWeight={700}>
+            {renderedNodeCount}
+          </Typography>
+        </Paper>
+        <Paper sx={{ p: 2, minWidth: 180, bgcolor: "#181818" }}>
+          <Typography variant="caption" color="gray">
+            Docs With Cached Lyrics
+          </Typography>
+          <Typography variant="h5" fontWeight={700}>
+            {songsWithCachedLyrics}
+          </Typography>
+        </Paper>
+      </Stack>
+      {!user && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Public mode: you can explore the song tree and cached lyrics from the
+          database. Log in to save songs to the shared library.
+        </Alert>
+      )}
 
       <Snackbar
         open={!!alertMsg}
@@ -481,17 +572,17 @@ const DictionaryPage: React.FC = () => {
                 size="small"
                 variant="outlined"
                 color="warning"
-                onClick={() => loadLyricsFromSpotify(false)}
+                onClick={() => loadLyricsFromDatabase(false)}
               >
-                Load Lyrics (Natural)
+                Load DB Lyrics (Natural)
               </Button>
               <Button
                 size="small"
                 variant="outlined"
                 color="error"
-                onClick={() => loadLyricsFromSpotify(true)}
+                onClick={() => loadLyricsFromDatabase(true)}
               >
-                Load Lyrics (Sorted)
+                Load DB Lyrics (Sorted)
               </Button>
             </Stack>
             <Box sx={{ mt: 3, textAlign: "center" }}>

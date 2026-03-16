@@ -34,8 +34,18 @@ const MiniPlayer: React.FC<Props> = ({ userId }) => {
             setTrack(data);
             const pct = (data.progressMs / data.item.durationMs) * 100;
             setProgress(pct > 100 ? 100 : pct);
+        } else {
+            setTrack(null);
+            setProgress(0);
         }
-    } catch (e) { console.error(e); }
+    } catch (error: any) {
+        if (error?.response?.status === 401 || error?.response?.status === 404) {
+            setTrack(null);
+            setProgress(0);
+            return;
+        }
+        console.error(error);
+    }
   }, [userId]);
 
   useEffect(() => {

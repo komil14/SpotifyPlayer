@@ -1,9 +1,15 @@
 import React from 'react';
-import { 
-  Container, Typography, Box, Button, Stack, Paper, Chip 
+import {
+  Container,
+  Typography,
+  Box,
+  Button,
+  Stack,
+  Paper,
+  Chip,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { PlayArrow, Mic, Bolt, LibraryMusic } from '@mui/icons-material';
+import { Mic, Bolt, LibraryMusic, LockOpen, Link as LinkIcon } from '@mui/icons-material';
 import { keyframes } from '@emotion/react';
 
 // 1. Animations
@@ -55,9 +61,9 @@ const LandingPage: React.FC = () => {
           </Typography>
 
           <Typography variant="h5" color="gray" maxWidth="md" sx={{ fontSize: { xs: '1rem', md: '1.5rem' }, lineHeight: 1.6 }}>
-            The ultimate Spotify companion. Real-time synced lyrics, 
-            interactive navigation, and zero distractions. 
-            Experience your music library like never before.
+            A lyrics-first music app with a public dictionary for everyone and
+            optional Spotify sync for live playback, playlists, and profile
+            import.
           </Typography>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ pt: 4 }}>
@@ -76,15 +82,60 @@ const LandingPage: React.FC = () => {
             <Button 
               variant="outlined" 
               size="large" 
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/dictionary')}
               sx={{ 
                 borderColor: 'white', color: 'white', fontWeight: 'bold', 
                 fontSize: '1.2rem', px: 5, py: 2, borderRadius: 50,
                 '&:hover': { borderColor: '#1DB954', color: '#1DB954' }
               }}
             >
-              Login
+              Explore Dictionary
             </Button>
+          </Stack>
+
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={2}
+            sx={{ width: '100%', maxWidth: 960, pt: 2 }}
+          >
+            <Paper
+              sx={{
+                flex: 1,
+                p: 3,
+                bgcolor: 'rgba(255,255,255,0.04)',
+                borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.08)',
+                textAlign: 'left',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                <LockOpen sx={{ color: '#1DB954' }} />
+                <Typography variant="h6" fontWeight="bold">Works Without Spotify</Typography>
+              </Box>
+              <Typography color="gray">
+                Explore the public lyrics dictionary, inspect song trees, and
+                browse cached lyric data before connecting anything.
+              </Typography>
+            </Paper>
+            <Paper
+              sx={{
+                flex: 1,
+                p: 3,
+                bgcolor: 'rgba(29,185,84,0.08)',
+                borderRadius: 6,
+                border: '1px solid rgba(29,185,84,0.18)',
+                textAlign: 'left',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                <LinkIcon sx={{ color: '#1DB954' }} />
+                <Typography variant="h6" fontWeight="bold">Spotify Unlocks More</Typography>
+              </Box>
+              <Typography color="gray">
+                Connect Spotify to import playlists, fetch your profile, sync to
+                live playback, and use the full player experience.
+              </Typography>
+            </Paper>
           </Stack>
         </Stack>
 

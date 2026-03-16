@@ -34,7 +34,9 @@ const NavBar: React.FC = () => {
             <Link to="/profile"><Button sx={{ color: 'white' }}>Profile</Button></Link>
           </Box>
         ) : (
-          <Box />
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Link to="/dictionary"><Button sx={{ color: 'white' }}>Dictionary</Button></Link>
+          </Box>
         )}
 
         {/* Auth Buttons */}

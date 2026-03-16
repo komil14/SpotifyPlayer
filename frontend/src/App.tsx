@@ -143,9 +143,7 @@ const App: React.FC = () => {
               <Route
                 path="/dictionary"
                 element={
-                  <ProtectedRoute>
-                    <DictionaryPage />
-                  </ProtectedRoute>
+                  <DictionaryPage />
                 }
               />
 
