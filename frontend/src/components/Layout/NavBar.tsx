@@ -1,8 +1,8 @@
 import React from 'react';
 import { AppBar, Toolbar, Box, Typography, Button } from '@mui/material';
-import { MusicNote } from '@mui/icons-material';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import AppLogo from '../Brand/AppLogo';
 
 const NavBar: React.FC = () => {
   const { user } = useAuth();
@@ -16,7 +16,7 @@ const NavBar: React.FC = () => {
             sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}
             onClick={() => navigate('/')}
         >
-          <MusicNote sx={{ color: '#1DB954', fontSize: 40 }} />
+          <AppLogo size={40} />
           <Typography variant="h5" color="text.primary" fontWeight="bold">
             SpotifyPlayer
           </Typography>

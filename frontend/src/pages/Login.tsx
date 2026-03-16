@@ -10,7 +10,6 @@ import {
   IconButton,
 } from "@mui/material";
 import {
-  MusicNote,
   Email,
   Lock,
   Visibility,
@@ -19,6 +18,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { keyframes } from "@emotion/react";
+import AppLogo from "../components/Brand/AppLogo";
 
 const pulse = keyframes`
   0% { box-shadow: 0 0 0 0 rgba(29, 185, 84, 0.5); }
@@ -108,7 +108,7 @@ const Login: React.FC = () => {
             cursor: "pointer",
           }}
         >
-          <MusicNote sx={{ color: "#1DB954", fontSize: 36 }} />
+          <AppLogo size={36} />
           <Typography variant="h5" fontWeight="bold">
             SpotifyPlayer
           </Typography>
